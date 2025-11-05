@@ -173,11 +173,4 @@ class RedshiftMaskingAutomator:
 if __name__ == "__main__":
     automator = RedshiftMaskingAutomator('your-cluster')
     result = automator.apply_automated_masking('your-database')
-    print(json.dumps(result, indent=2))eep time
-        else:
-            raise Exception(f"Query timed out after {max_wait_time} seconds")
-
-if __name__ == "__main__":
-    automator = RedshiftMaskingAutomator('your-cluster')
-    result = automator.apply_automated_masking('your-database')
     print(json.dumps(result, indent=2))
