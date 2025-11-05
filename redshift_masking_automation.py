@@ -79,27 +79,12 @@ class RedshiftMaskingAutomator:
         
         return sensitive_columns
 
-    def create_masking_policy(self, database: str, table_name: str, column_name: str, sensitivity_type: str, schema: str = 'public'):
-        """Create single masking policy with role-based conditions"""
-        policy_name = f"mask_{table_name}_{column_name}"
+    def create_masking_policy(self, database: str, table_name: str, column_name: str, sensitivity_type: str, role: str, schema: str = 'public'):
+        """Create DDM policy for specific role"""
+        policy_name = f"mask_{table_name}_{column_name}_{role}"
+        masking_expr = self.masking_policies[role][sensitivity_type].format(column=column_name)
         
-        # Create conditional masking based on user roles
-        public_mask = self.masking_policies['public'][sensitivity_type]
-        analyst_mask = self.masking_policies['analyst_role'][sensitivity_type].format(column=column_name)
-        admin_mask = self.masking_policies['admin_role'][sensitivity_type].format(column=column_name)
-        
-        masking_expr = f"""
-        CASE 
-            WHEN pg_has_role(current_user, 'admin_role', 'member') THEN {admin_mask}
-            WHEN pg_has_role(current_user, 'analyst_role', 'member') THEN {analyst_mask}
-            ELSE {public_mask}
-        END
-        """
-        
-        policy_sql = f"""
-        CREATE MASKING POLICY {policy_name} 
-        USING ({masking_expr})
-        """
+        policy_sql = f"CREATE MASKING POLICY {policy_name} USING ({masking_expr})"
         
         try:
             response = self.redshift_data.execute_statement(
@@ -114,12 +99,9 @@ class RedshiftMaskingAutomator:
             print(f"Error creating policy {policy_name}: {e}")
             return None
 
-    def attach_policy_to_column(self, database: str, policy_name: str, table_name: str, column_name: str, schema: str = 'public'):
-        """Attach masking policy to table column"""
-        attach_sql = f"""
-        ATTACH MASKING POLICY {policy_name} 
-        ON {schema}.{table_name}({column_name})
-        """
+    def attach_policy_to_role(self, database: str, policy_name: str, table_name: str, column_name: str, role: str, schema: str = 'public'):
+        """Attach masking policy to role on specific column"""
+        attach_sql = f"ATTACH MASKING POLICY {policy_name} ON {schema}.{table_name}({column_name}) TO ROLE {role}"
         
         try:
             response = self.redshift_data.execute_statement(
@@ -128,9 +110,9 @@ class RedshiftMaskingAutomator:
                 Sql=attach_sql
             )
             self._wait_for_query(response['Id'])
-            print(f"Attached policy {policy_name} to {schema}.{table_name}({column_name})")
+            print(f"Attached policy {policy_name} to role {role}")
         except Exception as e:
-            print(f"Error attaching policy to column: {e}")
+            print(f"Error attaching policy to role {role}: {e}")
 
     def get_database_users(self, database: str) -> List[str]:
         """Get list of database users"""
@@ -152,22 +134,25 @@ class RedshiftMaskingAutomator:
             return []
 
     def apply_automated_masking(self, database: str, schema: str = 'public'):
-        """Main automation method with role-based masking"""
+        """Main automation method with DDM role-based masking"""
         sensitive_columns = self.scan_new_columns(database, schema)
+        
+        roles = ['public', 'analyst_role', 'admin_role']
         
         for table_name, columns in sensitive_columns.items():
             for col_info in columns:
-                # Create single policy with role-based conditions
-                policy_name = self.create_masking_policy(
-                    database, table_name, 
-                    col_info['column'], col_info['type'], schema
-                )
-                
-                if policy_name:
-                    self.attach_policy_to_column(
-                        database, policy_name, table_name, 
-                        col_info['column'], schema
+                for role in roles:
+                    # Create policy for each role
+                    policy_name = self.create_masking_policy(
+                        database, table_name, 
+                        col_info['column'], col_info['type'], role, schema
                     )
+                    
+                    if policy_name:
+                        self.attach_policy_to_role(
+                            database, policy_name, table_name, 
+                            col_info['column'], role, schema
+                        )
         
         return sensitive_columns
 
@@ -181,7 +166,14 @@ class RedshiftMaskingAutomator:
                 break
             elif response['Status'] == 'FAILED':
                 raise Exception(f"Query failed: {response.get('Error')}")
-            time.sleep(0.5)  # Reduced sleep time
+            time.sleep(0.5)
+        else:
+            raise Exception(f"Query timed out after {max_wait_time} seconds")
+
+if __name__ == "__main__":
+    automator = RedshiftMaskingAutomator('your-cluster')
+    result = automator.apply_automated_masking('your-database')
+    print(json.dumps(result, indent=2))eep time
         else:
             raise Exception(f"Query timed out after {max_wait_time} seconds")
 
