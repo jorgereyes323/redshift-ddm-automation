@@ -65,47 +65,101 @@ class RedshiftMaskingAutomator:
         policy_name = f"mask_{table_name}_{column_name}"
         masking_expr = self.masking_policies[sensitivity_type].format(column=column_name)
         
-        # Create RLS policy
+        # Create masking policy
         policy_sql = f"""
-        CREATE RLS POLICY {policy_name} ON {schema}.{table_name}
-        FOR SELECT TO PUBLIC
-        USING (current_user = 'admin_user')
-        WITH ({column_name} = {masking_expr})
+        CREATE MASKING POLICY {policy_name} 
+        WITH (column_name = '{column_name}') 
+        USING ({masking_expr})
         """
         
         try:
-            self.redshift_data.execute_statement(
+            response = self.redshift_data.execute_statement(
                 ClusterIdentifier=self.cluster_identifier,
                 Database=database,
                 Sql=policy_sql
             )
+            self._wait_for_query(response['Id'])
             print(f"Created masking policy: {policy_name}")
+            return policy_name
         except Exception as e:
             print(f"Error creating policy {policy_name}: {e}")
+            return None
 
-    def apply_automated_masking(self, database: str, schema: str = 'public'):
+    def attach_policy_to_users(self, database: str, policy_name: str, table_name: str, column_name: str, users: List[str], schema: str = 'public'):
+        """Attach masking policy to specific users"""
+        for user in users:
+            attach_sql = f"""
+            ATTACH MASKING POLICY {policy_name} 
+            ON {schema}.{table_name}({column_name}) 
+            TO USER {user}
+            """
+            
+            try:
+                response = self.redshift_data.execute_statement(
+                    ClusterIdentifier=self.cluster_identifier,
+                    Database=database,
+                    Sql=attach_sql
+                )
+                self._wait_for_query(response['Id'])
+                print(f"Attached policy {policy_name} to user {user}")
+            except Exception as e:
+                print(f"Error attaching policy to user {user}: {e}")
+
+    def get_database_users(self, database: str) -> List[str]:
+        """Get list of database users"""
+        query = "SELECT usename FROM pg_user WHERE usename != 'rdsdb'"
+        
+        try:
+            response = self.redshift_data.execute_statement(
+                ClusterIdentifier=self.cluster_identifier,
+                Database=database,
+                Sql=query
+            )
+            self._wait_for_query(response['Id'])
+            result = self.redshift_data.get_statement_result(Id=response['Id'])
+            
+            users = [record[0]['stringValue'] for record in result['Records']]
+            return users
+        except Exception as e:
+            print(f"Error getting users: {e}")
+            return []
+
+    def apply_automated_masking(self, database: str, schema: str = 'public', target_users: List[str] = None):
         """Main automation method"""
         sensitive_columns = self.scan_new_columns(database, schema)
         
+        # Get users if not provided
+        if target_users is None:
+            target_users = self.get_database_users(database)
+        
         for table_name, columns in sensitive_columns.items():
             for col_info in columns:
-                self.create_masking_policy(
+                policy_name = self.create_masking_policy(
                     database, table_name, 
                     col_info['column'], col_info['type'], schema
                 )
+                
+                if policy_name and target_users:
+                    self.attach_policy_to_users(
+                        database, policy_name, table_name, 
+                        col_info['column'], target_users, schema
+                    )
         
         return sensitive_columns
 
-    def _wait_for_query(self, query_id: str):
-        """Wait for query completion"""
+    def _wait_for_query(self, query_id: str, max_wait_time: int = 30):
+        """Wait for query completion with timeout"""
         import time
-        while True:
+        start_time = time.time()
+        while time.time() - start_time < max_wait_time:
             response = self.redshift_data.describe_statement(Id=query_id)
             if response['Status'] == 'FINISHED':
                 break
             elif response['Status'] == 'FAILED':
                 raise Exception(f"Query failed: {response.get('Error')}")
-            time.sleep(1)
+            time.sleep(0.5)  # Reduced sleep time
+        else:
+            raise Exception(f"Query timed out after {max_wait_time} seconds")
 
 if __name__ == "__main__":
     automator = RedshiftMaskingAutomator('your-cluster')
