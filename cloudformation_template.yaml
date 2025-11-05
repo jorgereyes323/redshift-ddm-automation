@@ -1,0 +1,75 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Automated Redshift Data Masking Solution'
+
+Parameters:
+  RedshiftClusterIdentifier:
+    Type: String
+    Description: Redshift cluster identifier
+  DatabaseName:
+    Type: String
+    Description: Database name
+
+Resources:
+  MaskingLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: RedshiftDataAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - redshift-data:*
+                  - redshift:DescribeClusters
+                Resource: '*'
+
+  MaskingLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: redshift-masking-automation
+      Runtime: python3.9
+      Handler: lambda_trigger.lambda_handler
+      Role: !GetAtt MaskingLambdaRole.Arn
+      Code:
+        ZipFile: |
+          # Lambda code will be deployed separately
+          pass
+      Environment:
+        Variables:
+          CLUSTER_IDENTIFIER: !Ref RedshiftClusterIdentifier
+          DATABASE_NAME: !Ref DatabaseName
+
+  SchemaChangeEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: 'Trigger masking on schema changes'
+      EventPattern:
+        source: ['aws.redshift']
+        detail-type: ['Redshift Cluster State Change']
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt MaskingLambdaFunction.Arn
+          Id: MaskingLambdaTarget
+
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref MaskingLambdaFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt SchemaChangeEventRule.Arn
+
+Outputs:
+  LambdaFunctionArn:
+    Description: ARN of the masking Lambda function
+    Value: !GetAtt MaskingLambdaFunction.Arn
