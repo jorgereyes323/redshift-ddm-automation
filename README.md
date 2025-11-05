@@ -27,7 +27,16 @@ Automated solution for detecting and masking sensitive data in Amazon Redshift w
    ./deploy.sh your-cluster-name your-database-name
    ```
 
-2. **Manual Execution**:
+2. **Test with Notebook Use Case**:
+   ```bash
+   # Setup test environment
+   python test_automation.py
+   
+   # Or run SQL setup manually
+   # Execute notebook_setup.sql in Redshift
+   ```
+
+3. **Manual Execution**:
    ```python
    from redshift_masking_automation import RedshiftMaskingAutomator
    
@@ -42,6 +51,8 @@ Automated solution for detecting and masking sensitive data in Amazon Redshift w
 - `cloudformation_template.yaml` - Infrastructure template
 - `deploy.sh` - Deployment script
 - `requirements.txt` - Python dependencies
+- `test_automation.py` - Test suite using notebook DDM use case
+- `notebook_setup.sql` - SQL setup script from Redshift notebook
 
 ## Architecture
 
