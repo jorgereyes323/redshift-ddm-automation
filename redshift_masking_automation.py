@@ -20,17 +20,17 @@ class RedshiftMaskingAutomator:
         # Role-based masking policies
         self.masking_policies = {
             'public': {
-                'email': "'***MASKED***'",
-                'phone': "'***MASKED***'",
-                'ssn': "'***MASKED***'",
-                'credit_card': "'***MASKED***'",
-                'name': "'***MASKED***'",
-                'address': "'***MASKED***'"
+                'email': "'***MASKED***'::text",
+                'phone': "'***MASKED***'::text",
+                'ssn': "'XXX-XX-XXXX'::text",
+                'credit_card': "'****-****-****-****'::text",
+                'name': "'***MASKED***'::text",
+                'address': "'***MASKED***'::text"
             },
             'analyst_role': {
                 'email': "REGEXP_REPLACE({column}, '@.*', '@*****.com')",
                 'phone': "CONCAT(LEFT({column}, 3), '-***-****')",
-                'ssn': "CONCAT('***-**-', RIGHT({column}, 4))",
+                'ssn': "REDACT_SSN({column})",
                 'credit_card': "CONCAT('****-****-****-', RIGHT({column}, 4))",
                 'name': "CONCAT(LEFT({column}, 1), REPEAT('*', LENGTH({column})-1))",
                 'address': "CONCAT(LEFT({column}, 10), '***')"
@@ -84,7 +84,11 @@ class RedshiftMaskingAutomator:
         policy_name = f"mask_{table_name}_{column_name}_{role}"
         masking_expr = self.masking_policies[role][sensitivity_type].format(column=column_name)
         
-        policy_sql = f"CREATE MASKING POLICY {policy_name} USING ({masking_expr})"
+        policy_sql = f"""
+        CREATE MASKING POLICY {policy_name}
+        WITH ({column_name} VARCHAR(256))
+        USING ({masking_expr})
+        """
         
         try:
             response = self.redshift_data.execute_statement(
@@ -101,7 +105,27 @@ class RedshiftMaskingAutomator:
 
     def attach_policy_to_role(self, database: str, policy_name: str, table_name: str, column_name: str, role: str, schema: str = 'public'):
         """Attach masking policy to role on specific column"""
-        attach_sql = f"ATTACH MASKING POLICY {policy_name} ON {schema}.{table_name}({column_name}) TO ROLE {role}"
+        if role == 'public':
+            attach_sql = f"""
+            ATTACH MASKING POLICY {policy_name}
+            ON {table_name}({column_name})
+            TO PUBLIC
+            """
+        elif role == 'analyst_role':
+            attach_sql = f"""
+            ATTACH MASKING POLICY {policy_name}
+            ON {table_name}({column_name})
+            USING ({column_name})
+            TO ROLE {role}
+            PRIORITY 10
+            """
+        else:  # admin_role
+            attach_sql = f"""
+            ATTACH MASKING POLICY {policy_name}
+            ON {table_name}({column_name})
+            TO ROLE {role}
+            PRIORITY 20
+            """
         
         try:
             response = self.redshift_data.execute_statement(
@@ -110,9 +134,9 @@ class RedshiftMaskingAutomator:
                 Sql=attach_sql
             )
             self._wait_for_query(response['Id'])
-            print(f"Attached policy {policy_name} to role {role}")
+            print(f"Attached policy {policy_name} to {role}")
         except Exception as e:
-            print(f"Error attaching policy to role {role}: {e}")
+            print(f"Error attaching policy to {role}: {e}")
 
     def get_database_users(self, database: str) -> List[str]:
         """Get list of database users"""
