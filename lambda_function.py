@@ -41,7 +41,6 @@ def lambda_handler(event, context):
                     response = redshift_data.execute_statement(
                         ClusterIdentifier=cluster_identifier,
                         Database=database,
-                        DbUser='awsuser',
                         Sql=sql_command
                     )
                     
