@@ -29,14 +29,11 @@ def lambda_handler(event, context):
         automator = RedshiftMaskingAutomator(cluster_identifier)
         
         # Apply masking policies
-        sensitive_columns = automator.apply_automated_masking(database, schema)
+        result = automator.apply_automated_masking(database, schema)
         
         return {
             'statusCode': 200,
-            'body': json.dumps({
-                'message': 'Masking policies applied successfully',
-                'sensitive_columns': sensitive_columns
-            })
+            'body': json.dumps(result)
         }
         
     except Exception as e:
