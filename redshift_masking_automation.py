@@ -197,27 +197,18 @@ PRIORITY 20;"""
         return sql_commands, sensitive_columns
 
     def apply_automated_masking(self, database: str, schema: str = 'public'):
-        """Main automation method with DDM role-based masking"""
-        sensitive_columns = self.scan_new_columns(database, schema)
+        """Main automation method - generates SQL for superuser execution"""
+        sql_commands, sensitive_columns = self.generate_masking_sql(database, schema)
         
-        roles = ['public', 'analyst_role', 'admin_role']
+        if not sensitive_columns:
+            return {'message': 'No sensitive columns detected'}
         
-        for table_name, columns in sensitive_columns.items():
-            for col_info in columns:
-                for role in roles:
-                    # Create policy for each role
-                    policy_name = self.create_masking_policy(
-                        database, table_name, 
-                        col_info['column'], col_info['type'], role, schema
-                    )
-                    
-                    if policy_name:
-                        self.attach_policy_to_role(
-                            database, policy_name, table_name, 
-                            col_info['column'], role, schema
-                        )
-        
-        return sensitive_columns
+        # Return SQL commands for manual execution
+        return {
+            'message': 'Masking policies generated - execute SQL as superuser',
+            'sensitive_columns': sensitive_columns,
+            'sql_commands': sql_commands
+        }rn sensitive_columns
 
     def _wait_for_query(self, query_id: str, max_wait_time: int = 30):
         """Wait for query completion with timeout"""
@@ -232,11 +223,3 @@ PRIORITY 20;"""
             time.sleep(0.5)
         else:
             raise Exception(f"Query timed out after {max_wait_time} seconds")
-
-if __name__ == "__main__":
-    automator = RedshiftMaskingAutomator('your-cluster')
-    result = automator.apply_automated_masking('your-database')
-    
-    if result:
-        print("\n=== Summary ===")
-        print(json.dumps(result, indent=2))
