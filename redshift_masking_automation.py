@@ -133,7 +133,6 @@ PRIORITY 20;"""
             response = self.redshift_data.execute_statement(
                 ClusterIdentifier=self.cluster_identifier,
                 Database=database,
-                DbUser='awsuser',
                 Sql=policy_sql
             )
             self._wait_for_query(response['Id'])
@@ -170,7 +169,6 @@ PRIORITY 20;"""
             response = self.redshift_data.execute_statement(
                 ClusterIdentifier=self.cluster_identifier,
                 Database=database,
-                DbUser='awsuser',
                 Sql=attach_sql
             )
             self._wait_for_query(response['Id'])
