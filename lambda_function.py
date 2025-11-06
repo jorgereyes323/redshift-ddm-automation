@@ -31,47 +31,10 @@ def lambda_handler(event, context):
         # Get SQL commands and sensitive columns
         result = automator.apply_automated_masking(database, schema)
         
-        if 'sql_commands' in result:
-            # Execute SQL commands as superuser
-            redshift_data = boto3.client('redshift-data')
-            executed_commands = []
-            
-            for sql_command in result['sql_commands']:
-                try:
-                    response = redshift_data.execute_statement(
-                        ClusterIdentifier=cluster_identifier,
-                        Database=database,
-                        Sql=sql_command
-                    )
-                    
-                    # Wait for completion
-                    automator._wait_for_query(response['Id'])
-                    executed_commands.append(sql_command)
-                    
-                except Exception as e:
-                    print(f"Error executing SQL: {e}")
-                    return {
-                        'statusCode': 500,
-                        'body': json.dumps({
-                            'message': f'Error executing SQL: {str(e)}',
-                            'executed_commands': executed_commands,
-                            'failed_command': sql_command
-                        })
-                    }
-            
-            return {
-                'statusCode': 200,
-                'body': json.dumps({
-                    'message': 'Masking policies created and applied successfully',
-                    'sensitive_columns': result['sensitive_columns'],
-                    'executed_commands': len(executed_commands)
-                })
-            }
-        else:
-            return {
-                'statusCode': 200,
-                'body': json.dumps(result)
-            }
+        return {
+            'statusCode': 200,
+            'body': json.dumps(result)
+        }
         
     except Exception as e:
         return {
