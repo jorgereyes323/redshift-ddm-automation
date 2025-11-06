@@ -118,18 +118,96 @@ PRIORITY 20;"""
         
         return sql_commands, sensitive_columns
 
+    def create_masking_policy(self, database: str, table_name: str, column_name: str, sensitivity_type: str, role: str, schema: str = 'public'):
+        """Create DDM policy for specific role"""
+        policy_name = f"mask_{table_name}_{column_name}_{role}"
+        masking_expr = self.masking_policies[role][sensitivity_type].format(column=column_name)
+        
+        policy_sql = f"""
+        CREATE MASKING POLICY {policy_name}
+        WITH ({column_name} VARCHAR(256))
+        USING ({masking_expr})
+        """
+        
+        try:
+            response = self.redshift_data.execute_statement(
+                ClusterIdentifier=self.cluster_identifier,
+                Database=database,
+                DbUser='awsuser',
+                Sql=policy_sql
+            )
+            self._wait_for_query(response['Id'])
+            print(f"Created masking policy: {policy_name}")
+            return policy_name
+        except Exception as e:
+            print(f"Error creating policy {policy_name}: {e}")
+            return None
+
+    def attach_policy_to_role(self, database: str, policy_name: str, table_name: str, column_name: str, role: str, schema: str = 'public'):
+        """Attach masking policy to role on specific column"""
+        if role == 'public':
+            attach_sql = f"""
+            ATTACH MASKING POLICY {policy_name}
+            ON {table_name}({column_name})
+            TO PUBLIC
+            """
+        elif role == 'analyst_role':
+            attach_sql = f"""
+            ATTACH MASKING POLICY {policy_name}
+            ON {table_name}({column_name})
+            TO ROLE {role}
+            PRIORITY 10
+            """
+        else:  # admin_role
+            attach_sql = f"""
+            ATTACH MASKING POLICY {policy_name}
+            ON {table_name}({column_name})
+            TO ROLE {role}
+            PRIORITY 20
+            """
+        
+        try:
+            response = self.redshift_data.execute_statement(
+                ClusterIdentifier=self.cluster_identifier,
+                Database=database,
+                DbUser='awsuser',
+                Sql=attach_sql
+            )
+            self._wait_for_query(response['Id'])
+            print(f"Attached policy {policy_name} to {role}")
+        except Exception as e:
+            print(f"Error attaching policy to {role}: {e}")
+
     def apply_automated_masking(self, database: str, schema: str = 'public'):
-        """Main automation method - generates SQL for superuser execution"""
-        sql_commands, sensitive_columns = self.generate_masking_sql(database, schema)
+        """Main automation method with DDM role-based masking"""
+        sensitive_columns = self.scan_new_columns(database, schema)
         
         if not sensitive_columns:
             return {'message': 'No sensitive columns detected'}
         
-        # Return SQL commands for manual execution
+        roles = ['public', 'analyst_role', 'admin_role']
+        created_policies = []
+        
+        for table_name, columns in sensitive_columns.items():
+            for col_info in columns:
+                for role in roles:
+                    # Create policy for each role
+                    policy_name = self.create_masking_policy(
+                        database, table_name, 
+                        col_info['column'], col_info['type'], role, schema
+                    )
+                    
+                    if policy_name:
+                        created_policies.append(policy_name)
+                        self.attach_policy_to_role(
+                            database, policy_name, table_name, 
+                            col_info['column'], role, schema
+                        )
+        
         return {
-            'message': 'Masking policies generated - execute SQL as superuser',
+            'message': 'Masking policies created and attached successfully',
             'sensitive_columns': sensitive_columns,
-            'sql_commands': sql_commands
+            'created_policies': created_policies
         }
 
     def _wait_for_query(self, query_id: str, max_wait_time: int = 30):
