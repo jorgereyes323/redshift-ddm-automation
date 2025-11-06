@@ -56,6 +56,7 @@ class RedshiftMaskingAutomator:
         response = self.redshift_data.execute_statement(
             ClusterIdentifier=self.cluster_identifier,
             Database=database,
+            DbUser='awsuser',
             Sql=query
         )
         
@@ -94,6 +95,7 @@ class RedshiftMaskingAutomator:
             response = self.redshift_data.execute_statement(
                 ClusterIdentifier=self.cluster_identifier,
                 Database=database,
+                DbUser='awsuser',
                 Sql=policy_sql
             )
             self._wait_for_query(response['Id'])
@@ -131,6 +133,7 @@ class RedshiftMaskingAutomator:
             response = self.redshift_data.execute_statement(
                 ClusterIdentifier=self.cluster_identifier,
                 Database=database,
+                DbUser='awsuser',
                 Sql=attach_sql
             )
             self._wait_for_query(response['Id'])
@@ -146,6 +149,7 @@ class RedshiftMaskingAutomator:
             response = self.redshift_data.execute_statement(
                 ClusterIdentifier=self.cluster_identifier,
                 Database=database,
+                DbUser='awsuser',
                 Sql=query
             )
             self._wait_for_query(response['Id'])
@@ -157,26 +161,68 @@ class RedshiftMaskingAutomator:
             print(f"Error getting users: {e}")
             return []
 
-    def apply_automated_masking(self, database: str, schema: str = 'public'):
-        """Main automation method with DDM role-based masking"""
+    def generate_masking_sql(self, database: str, schema: str = 'public'):
+        """Generate SQL commands for manual execution by superuser"""
         sensitive_columns = self.scan_new_columns(database, schema)
         
+        sql_commands = []
         roles = ['public', 'analyst_role', 'admin_role']
         
         for table_name, columns in sensitive_columns.items():
             for col_info in columns:
                 for role in roles:
-                    # Create policy for each role
-                    policy_name = self.create_masking_policy(
-                        database, table_name, 
-                        col_info['column'], col_info['type'], role, schema
-                    )
+                    policy_name = f"mask_{table_name}_{col_info['column']}_{role}"
+                    masking_expr = self.masking_policies[role][col_info['type']].format(column=col_info['column'])
                     
-                    if policy_name:
-                        self.attach_policy_to_role(
-                            database, policy_name, table_name, 
-                            col_info['column'], role, schema
-                        )
+                    # Create policy SQL
+                    create_sql = f"""CREATE MASKING POLICY {policy_name}
+WITH ({col_info['column']} VARCHAR(256))
+USING ({masking_expr});"""
+                    
+                    # Attach policy SQL
+                    if role == 'public':
+                        attach_sql = f"""ATTACH MASKING POLICY {policy_name}
+ON {table_name}({col_info['column']})
+TO PUBLIC;"""
+                    elif role == 'analyst_role':
+                        attach_sql = f"""ATTACH MASKING POLICY {policy_name}
+ON {table_name}({col_info['column']})
+TO ROLE {role}
+PRIORITY 10;"""
+                    else:
+                        attach_sql = f"""ATTACH MASKING POLICY {policy_name}
+ON {table_name}({col_info['column']})
+TO ROLE {role}
+PRIORITY 20;"""
+                    
+                    sql_commands.append(create_sql)
+                    sql_commands.append(attach_sql)
+        
+        return sql_commands, sensitive_columns
+
+    def apply_automated_masking(self, database: str, schema: str = 'public'):
+        """Main automation method - generates SQL for superuser execution"""
+        print("=== Redshift DDM Automation ===")
+        
+        sql_commands, sensitive_columns = self.generate_masking_sql(database, schema)
+        
+        if not sensitive_columns:
+            print("No sensitive columns detected.")
+            return {}
+        
+        print(f"\nDetected sensitive columns: {len(sum(sensitive_columns.values(), []))}")
+        for table, cols in sensitive_columns.items():
+            for col in cols:
+                print(f"  {table}.{col['column']} -> {col['type']}")
+        
+        print("\n=== EXECUTE AS SUPERUSER ===")
+        print("Copy and run the following SQL commands as a superuser:")
+        print("-" * 50)
+        
+        for i, sql in enumerate(sql_commands, 1):
+            print(f"-- Command {i}")
+            print(sql)
+            print()
         
         return sensitive_columns
 
@@ -197,4 +243,7 @@ class RedshiftMaskingAutomator:
 if __name__ == "__main__":
     automator = RedshiftMaskingAutomator('your-cluster')
     result = automator.apply_automated_masking('your-database')
-    print(json.dumps(result, indent=2))
+    
+    if result:
+        print("\n=== Summary ===")
+        print(json.dumps(result, indent=2))
