@@ -177,35 +177,16 @@ PRIORITY 20;"""
             print(f"Error attaching policy to {role}: {e}")
 
     def apply_automated_masking(self, database: str, schema: str = 'public'):
-        """Main automation method with DDM role-based masking"""
-        sensitive_columns = self.scan_new_columns(database, schema)
+        """Main automation method - generates SQL for superuser execution"""
+        sql_commands, sensitive_columns = self.generate_masking_sql(database, schema)
         
         if not sensitive_columns:
             return {'message': 'No sensitive columns detected'}
         
-        roles = ['public', 'analyst_role', 'admin_role']
-        created_policies = []
-        
-        for table_name, columns in sensitive_columns.items():
-            for col_info in columns:
-                for role in roles:
-                    # Create policy for each role
-                    policy_name = self.create_masking_policy(
-                        database, table_name, 
-                        col_info['column'], col_info['type'], role, schema
-                    )
-                    
-                    if policy_name:
-                        created_policies.append(policy_name)
-                        self.attach_policy_to_role(
-                            database, policy_name, table_name, 
-                            col_info['column'], role, schema
-                        )
-        
         return {
-            'message': 'Masking policies created and attached successfully',
+            'message': 'Masking policies generated - execute SQL as superuser in Redshift',
             'sensitive_columns': sensitive_columns,
-            'created_policies': created_policies
+            'sql_commands': sql_commands
         }
 
     def _wait_for_query(self, query_id: str, max_wait_time: int = 30):
@@ -220,4 +201,4 @@ PRIORITY 20;"""
                 raise Exception(f"Query failed: {response.get('Error')}")
             time.sleep(0.5)
         else:
-            raise Exception(f"Query timed out after {max_wait_time} seconds")
+            raise Exception(f"Query timed out after {max_wait_time} seconds")_wait_time} seconds")
