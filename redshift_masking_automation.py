@@ -208,7 +208,7 @@ PRIORITY 20;"""
             'message': 'Masking policies generated - execute SQL as superuser',
             'sensitive_columns': sensitive_columns,
             'sql_commands': sql_commands
-        }rn sensitive_columns
+        }
 
     def _wait_for_query(self, query_id: str, max_wait_time: int = 30):
         """Wait for query completion with timeout"""
@@ -217,6 +217,12 @@ PRIORITY 20;"""
         while time.time() - start_time < max_wait_time:
             response = self.redshift_data.describe_statement(Id=query_id)
             if response['Status'] == 'FINISHED':
+                break
+            elif response['Status'] == 'FAILED':
+                raise Exception(f"Query failed: {response.get('Error')}")
+            time.sleep(0.5)
+        else:
+            raise Exception(f"Query timed out after {max_wait_time} seconds")e['Status'] == 'FINISHED':
                 break
             elif response['Status'] == 'FAILED':
                 raise Exception(f"Query failed: {response.get('Error')}")
