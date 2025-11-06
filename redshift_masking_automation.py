@@ -197,28 +197,25 @@ PRIORITY 20;"""
         return sql_commands, sensitive_columns
 
     def apply_automated_masking(self, database: str, schema: str = 'public'):
-        """Main automation method - generates SQL for superuser execution"""
-        print("=== Redshift DDM Automation ===")
+        """Main automation method with DDM role-based masking"""
+        sensitive_columns = self.scan_new_columns(database, schema)
         
-        sql_commands, sensitive_columns = self.generate_masking_sql(database, schema)
+        roles = ['public', 'analyst_role', 'admin_role']
         
-        if not sensitive_columns:
-            print("No sensitive columns detected.")
-            return {}
-        
-        print(f"\nDetected sensitive columns: {len(sum(sensitive_columns.values(), []))}")
-        for table, cols in sensitive_columns.items():
-            for col in cols:
-                print(f"  {table}.{col['column']} -> {col['type']}")
-        
-        print("\n=== EXECUTE AS SUPERUSER ===")
-        print("Copy and run the following SQL commands as a superuser:")
-        print("-" * 50)
-        
-        for i, sql in enumerate(sql_commands, 1):
-            print(f"-- Command {i}")
-            print(sql)
-            print()
+        for table_name, columns in sensitive_columns.items():
+            for col_info in columns:
+                for role in roles:
+                    # Create policy for each role
+                    policy_name = self.create_masking_policy(
+                        database, table_name, 
+                        col_info['column'], col_info['type'], role, schema
+                    )
+                    
+                    if policy_name:
+                        self.attach_policy_to_role(
+                            database, policy_name, table_name, 
+                            col_info['column'], role, schema
+                        )
         
         return sensitive_columns
 
