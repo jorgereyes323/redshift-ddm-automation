@@ -79,84 +79,6 @@ class RedshiftMaskingAutomator:
         
         return sensitive_columns
 
-    def create_masking_policy(self, database: str, table_name: str, column_name: str, sensitivity_type: str, role: str, schema: str = 'public'):
-        """Create DDM policy for specific role"""
-        policy_name = f"mask_{table_name}_{column_name}_{role}"
-        masking_expr = self.masking_policies[role][sensitivity_type].format(column=column_name)
-        
-        policy_sql = f"""
-        CREATE MASKING POLICY {policy_name}
-        WITH ({column_name} VARCHAR(256))
-        USING ({masking_expr})
-        """
-        
-        try:
-            response = self.redshift_data.execute_statement(
-                ClusterIdentifier=self.cluster_identifier,
-                Database=database,
-                Sql=policy_sql
-            )
-            self._wait_for_query(response['Id'])
-            print(f"Created masking policy: {policy_name}")
-            return policy_name
-        except Exception as e:
-            print(f"Error creating policy {policy_name}: {e}")
-            return None
-
-    def attach_policy_to_role(self, database: str, policy_name: str, table_name: str, column_name: str, role: str, schema: str = 'public'):
-        """Attach masking policy to role on specific column"""
-        if role == 'public':
-            attach_sql = f"""
-            ATTACH MASKING POLICY {policy_name}
-            ON {table_name}({column_name})
-            TO PUBLIC
-            """
-        elif role == 'analyst_role':
-            attach_sql = f"""
-            ATTACH MASKING POLICY {policy_name}
-            ON {table_name}({column_name})
-            USING ({column_name})
-            TO ROLE {role}
-            PRIORITY 10
-            """
-        else:  # admin_role
-            attach_sql = f"""
-            ATTACH MASKING POLICY {policy_name}
-            ON {table_name}({column_name})
-            TO ROLE {role}
-            PRIORITY 20
-            """
-        
-        try:
-            response = self.redshift_data.execute_statement(
-                ClusterIdentifier=self.cluster_identifier,
-                Database=database,
-                Sql=attach_sql
-            )
-            self._wait_for_query(response['Id'])
-            print(f"Attached policy {policy_name} to {role}")
-        except Exception as e:
-            print(f"Error attaching policy to {role}: {e}")
-
-    def get_database_users(self, database: str) -> List[str]:
-        """Get list of database users"""
-        query = "SELECT usename FROM pg_user WHERE usename != 'rdsdb'"
-        
-        try:
-            response = self.redshift_data.execute_statement(
-                ClusterIdentifier=self.cluster_identifier,
-                Database=database,
-                Sql=query
-            )
-            self._wait_for_query(response['Id'])
-            result = self.redshift_data.get_statement_result(Id=response['Id'])
-            
-            users = [record[0]['stringValue'] for record in result['Records']]
-            return users
-        except Exception as e:
-            print(f"Error getting users: {e}")
-            return []
-
     def generate_masking_sql(self, database: str, schema: str = 'public'):
         """Generate SQL commands for manual execution by superuser"""
         sensitive_columns = self.scan_new_columns(database, schema)
@@ -217,12 +139,6 @@ PRIORITY 20;"""
         while time.time() - start_time < max_wait_time:
             response = self.redshift_data.describe_statement(Id=query_id)
             if response['Status'] == 'FINISHED':
-                break
-            elif response['Status'] == 'FAILED':
-                raise Exception(f"Query failed: {response.get('Error')}")
-            time.sleep(0.5)
-        else:
-            raise Exception(f"Query timed out after {max_wait_time} seconds")e['Status'] == 'FINISHED':
                 break
             elif response['Status'] == 'FAILED':
                 raise Exception(f"Query failed: {response.get('Error')}")
