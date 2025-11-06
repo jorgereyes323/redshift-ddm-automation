@@ -1,12 +1,14 @@
 # Redshift Dynamic Data Masking Automation
 
-Automated solution for detecting and masking sensitive data in Amazon Redshift when new columns are added.
+Automated solution for detecting and masking sensitive data in Amazon Redshift using Dynamic Data Masking (DDM) policies.
 
 ## Features
 
 - **Automatic Detection**: Identifies sensitive columns using pattern matching
-- **Dynamic Masking**: Applies RLS policies with masking expressions
-- **Event-Driven**: Triggers on schema changes via CloudWatch Events
+- **Dynamic Masking**: Creates and applies DDM masking policies automatically
+- **Superuser Execution**: Automatically executes SQL commands using awsuser superuser
+- **Role-based Masking**: Different masking levels for public, analyst, and admin roles
+- **Event-Driven**: Can be triggered manually or via events
 - **Configurable**: Easy to add new sensitivity patterns and masking rules
 
 ## Supported Data Types
@@ -22,21 +24,26 @@ Automated solution for detecting and masking sensitive data in Amazon Redshift w
 
 ## Quick Start
 
-1. **Deploy Infrastructure**:
+1. **Setup IAM Permissions**:
+   - Add the IAM policy from `iam-policy-instructions.md` to your Lambda role
+   - This allows the Lambda to use awsuser superuser for DDM policy creation
+
+2. **Deploy Lambda Function**:
    ```bash
-   ./deploy.sh your-cluster-name your-database-name
+   # Deploy using AWS CLI or console
+   # Upload lambda_function.py and redshift_masking_automation.py
    ```
 
-2. **Test with Notebook Use Case**:
-   ```bash
-   # Setup test environment
-   python test_automation.py
-   
-   # Or run SQL setup manually
-   # Execute notebook_setup.sql in Redshift
+3. **Test Lambda Function**:
+   ```json
+   {
+     "cluster_identifier": "daab-redshift-cluster-jr-bedrock",
+     "database": "dev",
+     "schema": "public"
+   }
    ```
 
-3. **Manual Execution**:
+4. **Manual Execution**:
    ```python
    from redshift_masking_automation import RedshiftMaskingAutomator
    
@@ -46,13 +53,35 @@ Automated solution for detecting and masking sensitive data in Amazon Redshift w
 
 ## Files
 
-- `redshift_masking_automation.py` - Core automation logic
-- `lambda_trigger.py` - AWS Lambda function
-- `cloudformation_template.yaml` - Infrastructure template
-- `deploy.sh` - Deployment script
+- `redshift_masking_automation.py` - Core DDM automation logic
+- `lambda_function.py` - AWS Lambda function with automatic SQL execution
+- `iam-policy-instructions.md` - Required IAM policy setup
+- `run_this_first.sql` - Redshift user setup (if needed)
+- `setup_iam_user.sql` - Alternative IAM user setup
 - `requirements.txt` - Python dependencies
-- `test_automation.py` - Test suite using notebook DDM use case
+- `test_automation.py` - Test suite
 - `notebook_setup.sql` - SQL setup script from Redshift notebook
+
+## IAM Requirements
+
+The Lambda execution role needs:
+```json
+{
+    "Effect": "Allow",
+    "Action": "redshift:GetClusterCredentials",
+    "Resource": "arn:aws:redshift:us-east-1:442483223120:*"
+}
+```
+
+See `iam-policy-instructions.md` for detailed setup instructions.
+
+## How It Works
+
+1. **Lambda Triggered**: Function receives cluster/database parameters
+2. **Column Scanning**: Scans information_schema for sensitive column patterns
+3. **Policy Generation**: Creates DDM policies for each role (public, analyst, admin)
+4. **Automatic Execution**: Executes SQL commands using awsuser superuser
+5. **Response**: Returns success status with created policies count
 
 ## Architecture
 
