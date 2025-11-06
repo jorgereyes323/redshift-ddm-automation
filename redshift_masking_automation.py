@@ -56,7 +56,6 @@ class RedshiftMaskingAutomator:
         response = self.redshift_data.execute_statement(
             ClusterIdentifier=self.cluster_identifier,
             Database=database,
-            DbUser='awsuser',
             Sql=query
         )
         
@@ -95,7 +94,6 @@ class RedshiftMaskingAutomator:
             response = self.redshift_data.execute_statement(
                 ClusterIdentifier=self.cluster_identifier,
                 Database=database,
-                DbUser='awsuser',
                 Sql=policy_sql
             )
             self._wait_for_query(response['Id'])
@@ -133,7 +131,6 @@ class RedshiftMaskingAutomator:
             response = self.redshift_data.execute_statement(
                 ClusterIdentifier=self.cluster_identifier,
                 Database=database,
-                DbUser='awsuser',
                 Sql=attach_sql
             )
             self._wait_for_query(response['Id'])
@@ -149,7 +146,6 @@ class RedshiftMaskingAutomator:
             response = self.redshift_data.execute_statement(
                 ClusterIdentifier=self.cluster_identifier,
                 Database=database,
-                DbUser='awsuser',
                 Sql=query
             )
             self._wait_for_query(response['Id'])
